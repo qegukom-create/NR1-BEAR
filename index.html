@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NR1 - Bear Trap Monitor</title>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+    <style>
+        :root { --bg: #0f172a; --card: #1e293b; --primary: #ef4444; --gold: #fbbf24; --text: #f8fafc; --border: #334155; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 15px; }
+        .container { max-width: 1000px; margin: auto; }
+        h1 { color: var(--primary); text-align: center; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 25px; }
+
+        /* Navigation Pièges */
+        .trap-nav { display: flex; gap: 10px; margin-bottom: 25px; }
+        .trap-btn { flex: 1; padding: 15px; border: 2px solid #334155; border-radius: 12px; background: #1e293b; color: white; cursor: pointer; font-weight: bold; font-size: 1.1rem; transition: 0.3s; }
+        .trap-btn.active { border-color: var(--primary); background: rgba(239, 68, 68, 0.2); color: white; box-shadow: 0 0 15px rgba(239, 68, 68, 0.2); }
+
+        /* Formulaire */
+        .grid-layout { display: grid; grid-template-columns: 1fr 1.2fr; gap: 20px; }
+        .panel { background: var(--card); padding: 25px; border-radius: 16px; border: 1px solid var(--border); }
+        .panel-title { font-weight: bold; margin-bottom: 20px; color: var(--gold); text-transform: uppercase; font-size: 0.9rem; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+
+        label { display: block; font-size: 0.8rem; color: #94a3b8; margin-bottom: 8px; text-transform: uppercase; }
+        select { background: #0f172a; border: 1px solid #475569; color: white; padding: 12px; border-radius: 8px; width: 100%; margin-bottom: 20px; outline: none; font-size: 0.95rem; }
+        
+        /* Critères (Checkboxes) */
+        .infraction-list { display: flex; flex-direction: column; gap: 12px; margin-bottom: 25px; }
+        .infraction-item { display: flex; align-items: center; background: #0f172a; padding: 12px; border-radius: 8px; border: 1px solid var(--border); cursor: pointer; transition: 0.2s; }
+        .infraction-item:hover { border-color: var(--primary); }
+        .infraction-item input { margin-right: 12px; width: 18px; height: 18px; accent-color: var(--primary); }
+
+        .btn-save { background: var(--primary); color: white; border: none; padding: 14px; border-radius: 8px; font-weight: bold; cursor: pointer; width: 100%; text-transform: uppercase; letter-spacing: 1px; font-size: 0.95rem; transition: 0.2s; }
+        .btn-save:hover { background: #dc2626; }
+
+        /* Log / Suivi */
+        .log-container { display: flex; flex-direction: column; gap: 10px; max-height: 450px; overflow-y: auto; }
+        .log-card { background: #0f172a; padding: 12px 15px; border-radius: 8px; border-left: 4px solid var(--primary); font-size: 0.85rem; }
+        .log-header { display: flex; justify-content: space-between; margin-bottom: 6px; }
+        .log-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
+        .tag { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>🐻 Bear Trap Incidents Log</h1>
+
+    <div class="trap-nav">
+        <button id="btn-T1" class="trap-btn active" onclick="switchTrap('Trap 1')">BEAR TRAP 1</button>
+        <button id="btn-T2" class="trap-btn" onclick="switchTrap('Trap 2')">BEAR TRAP 2</button>
+    </div>
+
+    <div class="grid-layout">
+        <div class="panel">
+            <div class="panel-title">Report Misplay</div>
+            
+            <label>Select Player</label>
+            <select id="player-select"><option>Loading...</option></select>
+
+            <label>Misplay Criteria (Select all that apply)</label>
+            <div class="infraction-list">
+                <label class="infraction-item">
+                    <input type="checkbox" value="Mauvais Héros">
+                    <span>Mauvais Héros</span>
+                </label>
+                <label class="infraction-item">
+                    <input type="checkbox" value="Mauvaise Quantité de troupe">
+                    <span>Quantité de troupe</span>
+                </label>
+                <label class="infraction-item">
+                    <input type="checkbox" value="Ralliement en trop">
+                    <span>Ralliement en trop</span>
+                </label>
+                <label class="infraction-item">
+                    <input type="checkbox" value="Annulation de ralliement">
+                    <span>Annulation de ralliement</span>
+                </label>
+            </div>
+
+            <button class="btn-save" onclick="saveBearReport()">Save Report</button>
+        </div>
+
+        <div class="panel">
+            <div class="panel-title" id="log-title">Recent Trap 1 Reports</div>
+            <div class="log-container" id="log-display">
+                <div style="opacity:0.3; text-align:center; padding-top:20px;">No incidents reported yet.</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const firebaseConfig = {
+        apiKey: "AIzaSyA8edMWQreJMKrbS8MuowKZl58x7W5vfBU",
+        authDomain: "nr1-vikings.firebaseapp.com",
+        databaseURL: "https://nr1-vikings-default-rtdb.europe-west1.firebasedatabase.app",
+        projectId: "nr1-vikings"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    let currentTrap = 'Trap 1';
+    let allMembers = {};
+
+    function switchTrap(trap) {
+        currentTrap = trap;
+        document.querySelectorAll('.trap-btn').forEach(b => b.classList.remove('active'));
+        document.getElementById(trap === 'Trap 1' ? 'btn-T1' : 'btn-T2').classList.add('active');
+        document.getElementById('log-title').innerText = `Recent ${trap} Reports`;
+        renderLogs();
+    }
+
+    // Sauvegarde avec horodatage complet
+    function saveBearReport() {
+        const playerId = document.getElementById('player-select').value;
+        if(!playerId) return alert("Please select a player");
+
+        // Récupérer les critères cochés
+        const selectedCriteria = [];
+        document.querySelectorAll('.infraction-list input:checked').forEach(cb => {
+            selectedCriteria.push(cb.value);
+        });
+
+        if(selectedCriteria.length === 0) return alert("Please select at least one misplay criteria");
+
+        const timestamp = new Date().toISOString(); // Format standard ISO
+        const logDate = new Date().toLocaleString(); // Format lisible pour l'affichage
+        
+        const reportData = {
+            trap: currentTrap,
+            timestamp: timestamp,
+            dateReadable: logDate,
+            errors: selectedCriteria
+        };
+
+        // On pousse l'incident dans une liste (historique) propre au joueur
+        db.ref(`beartrap/reports/${playerId}`).push(reportData, () => {
+            alert(`Report saved for ${allMembers[playerId].name}`);
+            // Reset des checkboxes
+            document.querySelectorAll('.infraction-list input').forEach(cb => cb.checked = false);
+        });
+    }
+
+    function init() {
+        // Charger l'annuaire
+        db.ref('alliance_database').on('value', snap => {
+            allMembers = snap.val() || {};
+            const select = document.getElementById('player-select');
+            select.innerHTML = '<option value="">Select player...</option>';
+            
+            Object.keys(allMembers).sort((a,b) => allMembers[a].name.localeCompare(allMembers[b].name)).forEach(id => {
+                select.innerHTML += `<option value="${id}">${allMembers[id].name}</option>`;
+            });
+            renderLogs();
+        });
+    }
+
+    // Affiche l'historique en direct pour le piège sélectionné
+    function renderLogs() {
+        db.ref('beartrap/reports').on('value', snap => {
+            const reports = snap.val() || {};
+            const logDisplay = document.getElementById('log-display');
+            logDisplay.innerHTML = "";
+            
+            let hasData = false;
+            let allLogsCombined = [];
+
+            // Combiner tous les logs de tous les joueurs pour le tri chronologique
+            Object.keys(reports).forEach(pId => {
+                const playerLogs = reports[pId];
+                Object.keys(playerLogs).forEach(logId => {
+                    if(playerLogs[logId].trap === currentTrap) {
+                        allLogsCombined.push({
+                            playerName: allMembers[pId]?.name || 'Unknown',
+                            ...playerLogs[logId]
+                        });
+                    }
+                });
+            });
+
+            // Trier du plus récent au plus ancien
+            allLogsCombined.sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+            allLogsCombined.forEach(log => {
+                hasData = true;
+                let tagsHtml = log.errors.map(err => `<span class="tag">${err}</span>`).join('');
+                
+                logDisplay.innerHTML += `
+                    <div class="log-card">
+                        <div class="log-header">
+                            <b style="color:var(--gold); font-size:0.95rem;">${log.playerName}</b>
+                            <span style="color:#64748b; font-size:0.75rem;">${log.dateReadable}</span>
+                        </div>
+                        <div class="log-tags">${tagsHtml}</div>
+                    </div>`;
+            });
+
+            if(!hasData) {
+                logDisplay.innerHTML = `<div style="opacity:0.3; text-align:center; padding-top:20px;">No incidents reported for ${currentTrap}.</div>`;
+            }
+        });
+    }
+
+    init();
+</script>
+</body>
+</html>
