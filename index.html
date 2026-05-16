@@ -83,11 +83,11 @@
         </div>
 
         <div class="panel">
-            <div class="panel-title" id="log-title">Recent Trap 1 Reports</div>
+            <div class="panel-title" id="log-title">Today's Trap 1 Reports</div>
             <div class="log-container" id="log-display">
-                <div style="opacity:0.3; text-align:center; padding-top:20px;">No incidents reported yet.</div>
+                <div style="opacity:0.3; text-align:center; padding-top:20px;">No incidents reported yet today.</div>
             </div>
-			<button class="btn-save" style="background: #334155; margin-top: 15px;" onclick="clearAllBearData()">Reset Current Board Data</button>
+			<button class="btn-save" style="background: #334155; margin-top: 15px;" onclick="clearAllBearData()">Reset All Board Data</button>
         </div>
     </div>
 </div>
@@ -104,13 +104,22 @@
 
     let currentTrap = 'Trap 1';
     let allMembers = {};
+    let rawReports = {};
+
+    function getTodayKey() {
+        const maintenant = new Date();
+        const annee = maintenant.getFullYear();
+        const mois = String(maintenant.getMonth() + 1).padStart(2, '0');
+        const jour = String(maintenant.getDate()).padStart(2, '0');
+        return `${annee}-${mois}-${jour}`;
+    }
 
     function switchTrap(trap) {
         currentTrap = trap;
         document.querySelectorAll('.trap-btn').forEach(b => b.classList.remove('active'));
         document.getElementById(trap === 'Trap 1' ? 'btn-T1' : 'btn-T2').classList.add('active');
-        document.getElementById('log-title').innerText = `Recent ${trap} Reports`;
-        renderLogs();
+        document.getElementById('log-title').innerText = `Today's ${trap} Reports`;
+        updateLogDOM();
     }
 
     function saveBearReport() {
@@ -124,19 +133,36 @@
 
         if(selectedCriteria.length === 0) return alert("Please select at least one misplay criteria.");
 
-        const timestamp = new Date().toISOString();
-        const logDate = new Date().toLocaleString('en-US'); // Utilisation des standards US pour la date lisible
-        
-        const reportData = {
-            trap: currentTrap,
-            timestamp: timestamp,
-            dateReadable: logDate,
-            errors: selectedCriteria
-        };
+        const cleDuJour = getTodayKey(); 
+        const nodeRef = db.ref(`beartrap/reports/${playerId}/${cleDuJour}`);
 
-        db.ref(`beartrap/reports/${playerId}`).push(reportData, () => {
-            alert(`Report saved successfully for ${allMembers[playerId].name}`);
+        // 1. On va d'abord lire l'existant UNE SEULE FOIS pour voir s'il y a déjà des données aujourd'hui
+        nodeRef.once('value').then(snap => {
+            let finalErrors = [...selectedCriteria];
+            const existingData = snap.val();
+
+            if (existingData && existingData.errors) {
+                // Si des erreurs existent déjà pour ce joueur aujourd'hui, on fusionne les deux listes
+                // Set permet d'éviter d'avoir des doublons (ex: deux fois "Wrong Heroes" le même jour)
+                finalErrors = Array.from(new Set([...existingData.errors, ...selectedCriteria]));
+            }
+
+            const reportData = {
+                trap: currentTrap,
+                dateArchived: cleDuJour, 
+                errors: finalErrors, // Liste fusionnée et propre
+                lastUpdated: firebase.database.ServerValue.TIMESTAMP 
+            };
+
+            // 2. On sauvegarde les données cumulées
+            return nodeRef.set(reportData);
+        })
+        .then(() => {
+            alert(`Report updated successfully for ${allMembers[playerId]?.name || 'Player'}.`);
             document.querySelectorAll('.infraction-list input').forEach(cb => cb.checked = false);
+        })
+        .catch(error => {
+            alert("Error saving report: " + error.message);
         });
     }
 
@@ -149,67 +175,69 @@
             Object.keys(allMembers).sort((a,b) => allMembers[a].name.localeCompare(allMembers[b].name)).forEach(id => {
                 select.innerHTML += `<option value="${id}">${allMembers[id].name}</option>`;
             });
-            renderLogs();
+            updateLogDOM();
+        });
+
+        db.ref('beartrap/reports').on('value', snap => {
+            rawReports = snap.val() || {};
+            updateLogDOM();
         });
     }
 
-    function renderLogs() {
-        db.ref('beartrap/reports').on('value', snap => {
-            const reports = snap.val() || {};
-            const logDisplay = document.getElementById('log-display');
-            logDisplay.innerHTML = "";
-            
-            let hasData = false;
-            let allLogsCombined = [];
+    function updateLogDOM() {
+        const logDisplay = document.getElementById('log-display');
+        if (!logDisplay) return;
+        
+        logDisplay.innerHTML = "";
+        let hasData = false;
+        let allLogsCombined = [];
+        const cleDuJourActuel = getTodayKey();
 
-            Object.keys(reports).forEach(pId => {
-                const playerLogs = reports[pId];
-                Object.keys(playerLogs).forEach(logId => {
-                    if(playerLogs[logId].trap === currentTrap) {
-                        allLogsCombined.push({
-                            playerName: allMembers[pId]?.name || 'Unknown',
-                            ...playerLogs[logId]
-                        });
-                    }
-                });
+        Object.keys(rawReports).forEach(pId => {
+            const playerDates = rawReports[pId]; 
+            Object.keys(playerDates).forEach(dateId => {
+                if(playerDates[dateId].trap === currentTrap && dateId === cleDuJourActuel) {
+                    allLogsCombined.push({
+                        playerName: allMembers[pId]?.name || 'Unknown',
+                        ...playerDates[dateId]
+                    });
+                }
             });
-
-            allLogsCombined.sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
-
-            allLogsCombined.forEach(log => {
-                hasData = true;
-                let tagsHtml = log.errors.map(err => `<span class="tag">${err}</span>`).join('');
-                
-                logDisplay.innerHTML += `
-                    <div class="log-card">
-                        <div class="log-header">
-                            <b style="color:var(--gold); font-size:0.95rem;">${log.playerName}</b>
-                            <span style="color:#64748b; font-size:0.75rem;">${log.dateReadable}</span>
-                        </div>
-                        <div class="log-tags">${tagsHtml}</div>
-                    </div>`;
-            });
-
-            if(!hasData) {
-                logDisplay.innerHTML = `<div style="opacity:0.3; text-align:center; padding-top:20px;">No incidents reported for ${currentTrap}.</div>`;
-            }
         });
+
+        allLogsCombined.sort((a,b) => b.lastUpdated - a.lastUpdated);
+
+        allLogsCombined.forEach(log => {
+            hasData = true;
+            let tagsHtml = log.errors.map(err => `<span class="tag">${err}</span>`).join('');
+            
+            const [annee, mois, jour] = log.dateArchived.split('-');
+            const dateAffichage = `${jour}/${mois}/${annee}`;
+            
+            logDisplay.innerHTML += `
+                <div class="log-card">
+                    <div class="log-header">
+                        <b style="color:var(--gold); font-size:0.95rem;">${log.playerName}</b>
+                        <span style="color:#ef4444; font-weight: bold; font-size:0.75rem;">Aujourd'hui (${dateAffichage})</span>
+                    </div>
+                    <div class="log-tags">${tagsHtml}</div>
+                </div>`;
+        });
+
+        if(!hasData) {
+            logDisplay.innerHTML = `<div style="opacity:0.3; text-align:center; padding-top:20px;">No incidents reported yet today for ${currentTrap}.</div>`;
+        }
     }
 
     init();
-	
-	function clearAllBearData() {
-    if (!confirm("WARNING: This will permanently delete all current Bear Trap reports. This action cannot be undone. Proceed?")) return;
     
-    db.ref('beartrap/reports').remove()
-        .then(() => {
-            alert("All Bear Trap board reports have been successfully cleared!");
-        })
-        .catch((error) => {
-            alert("Error clearing data: " + error.message);
-        });
-}
-	
+    function clearAllBearData() {
+        if (!confirm("WARNING: This will permanently delete all history of Bear Trap reports. Proceed?")) return;
+        
+        db.ref('beartrap/reports').remove()
+            .then(() => { alert("All Bear Trap reports database has been successfully cleared!"); })
+            .catch((error) => { alert("Error clearing data: " + error.message); });
+    }
 </script>
 </body>
 </html>
