@@ -87,7 +87,7 @@
             <div class="log-container" id="log-display">
                 <div style="opacity:0.3; text-align:center; padding-top:20px;">No incidents reported yet today.</div>
             </div>
-			<button class="btn-save" style="background: #334155; margin-top: 15px;" onclick="clearAllBearData()">Reset All Board Data</button>
+            <button class="btn-save" style="background: #334155; margin-top: 15px;" onclick="clearAllBearData()">Reset All Board Data</button>
         </div>
     </div>
 </div>
@@ -136,25 +136,21 @@
         const cleDuJour = getTodayKey(); 
         const nodeRef = db.ref(`beartrap/reports/${playerId}/${cleDuJour}`);
 
-        // 1. On va d'abord lire l'existant UNE SEULE FOIS pour voir s'il y a déjà des données aujourd'hui
         nodeRef.once('value').then(snap => {
             let finalErrors = [...selectedCriteria];
             const existingData = snap.val();
 
             if (existingData && existingData.errors) {
-                // Si des erreurs existent déjà pour ce joueur aujourd'hui, on fusionne les deux listes
-                // Set permet d'éviter d'avoir des doublons (ex: deux fois "Wrong Heroes" le même jour)
                 finalErrors = Array.from(new Set([...existingData.errors, ...selectedCriteria]));
             }
 
             const reportData = {
                 trap: currentTrap,
                 dateArchived: cleDuJour, 
-                errors: finalErrors, // Liste fusionnée et propre
+                errors: finalErrors,
                 lastUpdated: firebase.database.ServerValue.TIMESTAMP 
             };
 
-            // 2. On sauvegarde les données cumulées
             return nodeRef.set(reportData);
         })
         .then(() => {
@@ -173,7 +169,11 @@
             select.innerHTML = '<option value="">Select player...</option>';
             
             Object.keys(allMembers).sort((a,b) => allMembers[a].name.localeCompare(allMembers[b].name)).forEach(id => {
-                select.innerHTML += `<option value="${id}">${allMembers[id].name}</option>`;
+                const member = allMembers[id];
+                // MODIFICATION : Si le joueur possède des alias, on les affiche entre parenthèses
+                const displayName = member.aliases ? `${member.name} (${member.aliases})` : member.name;
+                
+                select.innerHTML += `<option value="${id}">${displayName}</option>`;
             });
             updateLogDOM();
         });
